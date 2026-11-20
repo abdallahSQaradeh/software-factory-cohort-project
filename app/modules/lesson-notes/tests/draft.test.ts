@@ -65,4 +65,10 @@ describe("describeNoteDraft", () => {
     expect(draft.tooLong).toBe(false);
     expect(draft.canSave).toBe(true);
   });
+
+  it("cannot save a cleared note, which the server would reject", () => {
+    const draft = describeNoteDraft("", "my note");
+    expect(draft.unsaved).toBe(true);
+    expect(draft.canSave).toBe(false);
+  });
 });
