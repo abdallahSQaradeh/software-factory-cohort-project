@@ -12,6 +12,11 @@ export function getQuizByLessonId(lessonId: number) {
   return db.select().from(quizzes).where(eq(quizzes.lessonId, lessonId)).get();
 }
 
+export function isQuizOnLesson(quizId: number, lessonId: number) {
+  const quiz = db.select().from(quizzes).where(eq(quizzes.id, quizId)).get();
+  return quiz?.lessonId === lessonId;
+}
+
 export function getQuizWithQuestions(quizId: number) {
   const quiz = db.select().from(quizzes).where(eq(quizzes.id, quizId)).get();
   if (!quiz) return null;
