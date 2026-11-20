@@ -37,7 +37,7 @@ describe("describeNoteDraft", () => {
 
   it("cannot save whitespace", () => {
     const draft = describeNoteDraft("   ", null);
-    expect(draft.unsaved).toBe(true);
+    expect(draft.unsaved).toBe(false);
     expect(draft.canSave).toBe(false);
   });
 
@@ -51,5 +51,18 @@ describe("describeNoteDraft", () => {
     const draft = describeNoteDraft("a".repeat(MAX_NOTE_LENGTH + 1), null);
     expect(draft.tooLong).toBe(true);
     expect(draft.canSave).toBe(false);
+  });
+
+  it("is not unsaved once the trimmed note is saved", () => {
+    const draft = describeNoteDraft("my note\n", "my note");
+    expect(draft.unsaved).toBe(false);
+    expect(draft.canSave).toBe(false);
+  });
+
+  it("does not count surrounding whitespace against the limit", () => {
+    const draft = describeNoteDraft(`${"a".repeat(MAX_NOTE_LENGTH)}  `, null);
+    expect(draft.counter).toBe("2,000 / 2,000");
+    expect(draft.tooLong).toBe(false);
+    expect(draft.canSave).toBe(true);
   });
 });

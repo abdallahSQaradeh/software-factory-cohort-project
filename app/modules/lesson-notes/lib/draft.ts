@@ -10,13 +10,15 @@ export type NoteDraft = {
 };
 
 export function draftOf(body: string, savedBody: string | null): NoteDraft {
-  const tooLong = body.length > MAX_NOTE_LENGTH;
-  const unsaved = body !== (savedBody ?? "");
-  // The server trims and rejects an empty note, so whitespace is not worth a round trip.
-  const empty = body.trim().length === 0;
+  // The server trims before it checks the length and stores the note, so
+  // compare what it would store, not what is in the box.
+  const stored = body.trim();
+  const tooLong = stored.length > MAX_NOTE_LENGTH;
+  const unsaved = stored !== (savedBody ?? "");
+  const empty = stored.length === 0;
 
   return {
-    counter: `${body.length.toLocaleString("en")} / ${MAX_NOTE_LENGTH.toLocaleString("en")}`,
+    counter: `${stored.length.toLocaleString("en")} / ${MAX_NOTE_LENGTH.toLocaleString("en")}`,
     tooLong,
     unsaved,
     canSave: unsaved && !tooLong && !empty,
