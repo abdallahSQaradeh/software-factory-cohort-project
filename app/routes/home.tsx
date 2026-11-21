@@ -25,8 +25,8 @@ import { getCountryTierInfo, COUNTRIES } from "~/lib/ppp";
 import { eq } from "drizzle-orm";
 import { db } from "~/db";
 import { users } from "~/db/schema";
-import { landing } from "~/modules/landing/index.server";
-import { getHeroActions } from "~/modules/landing";
+import { landing, type FeaturedCourse } from "~/modules/landing/index.server";
+import { getFooterLinks, getHeroActions } from "~/modules/landing";
 
 function getAllUsers() {
   return db.select().from(users).all();
@@ -36,9 +36,7 @@ function getUserById(id: number) {
   return db.select().from(users).where(eq(users.id, id)).get();
 }
 
-type HomeCourse = Route.ComponentProps["loaderData"]["featuredCourses"][number];
-
-function SpotlightCourse({ course }: { course: HomeCourse }) {
+function SpotlightCourse({ course }: { course: FeaturedCourse }) {
   return (
     <div className="relative">
       <div
@@ -95,10 +93,10 @@ function Stat({
       <div className="flex size-12 shrink-0 items-center justify-center rounded-lg bg-primary/10">
         <Icon className="size-6 text-primary" />
       </div>
-      <div className="flex flex-col-reverse">
+      <dl className="flex flex-col-reverse">
         <dt className="text-sm text-muted-foreground">{label}</dt>
         <dd className="text-2xl font-bold">{value}</dd>
-      </div>
+      </dl>
     </div>
   );
 }
@@ -136,9 +134,10 @@ export async function loader({ request }: Route.LoaderArgs) {
 
 export default function Home({ loaderData }: Route.ComponentProps) {
   const {
+    spotlightCourse,
     featuredCourses,
     publishedCourseCount,
-    categoryCount,
+    publishedCategoryCount,
     publishedLessonCount,
     users,
     currentUser,
@@ -148,17 +147,7 @@ export default function Home({ loaderData }: Route.ComponentProps) {
   } = loaderData;
   const [isDark, setIsDark] = useState(false);
   const heroActions = getHeroActions(currentUser !== null);
-  const spotlight = featuredCourses[0];
-  const footerLinks = currentUser
-    ? [
-        { label: "Courses", to: "/courses" },
-        { label: "Dashboard", to: "/dashboard" },
-      ]
-    : [
-        { label: "Courses", to: "/courses" },
-        { label: "Log In", to: "/login" },
-        { label: "Sign Up", to: "/signup" },
-      ];
+  const footerLinks = getFooterLinks(currentUser !== null);
 
   useEffect(() => {
     setIsDark(document.documentElement.classList.contains("dark"));
@@ -219,11 +208,14 @@ export default function Home({ loaderData }: Route.ComponentProps) {
         </div>
       </header>
 
-      <section className="mx-auto grid max-w-6xl items-center gap-12 px-6 py-20 lg:grid-cols-[1.1fr_1fr] lg:py-28">
+      <section
+        className={`mx-auto grid max-w-6xl items-center gap-12 px-6 py-20 lg:py-28 ${spotlightCourse ? "lg:grid-cols-[1.1fr_1fr]" : ""}`}
+      >
         <div>
           <p className="inline-flex items-center gap-2 rounded-full border border-border bg-muted/50 px-3 py-1 text-xs font-medium text-muted-foreground">
             <Sparkles className="size-3.5 text-primary" />
-            {publishedCourseCount} courses across {categoryCount} categories
+            {publishedCourseCount} courses across {publishedCategoryCount}{" "}
+            categories
           </p>
           <h1 className="mt-6 text-5xl font-bold tracking-tight sm:text-6xl">
             Learn to code,
@@ -249,19 +241,23 @@ export default function Home({ loaderData }: Route.ComponentProps) {
           </div>
         </div>
 
-        {spotlight && <SpotlightCourse course={spotlight} />}
+        {spotlightCourse && <SpotlightCourse course={spotlightCourse} />}
       </section>
 
       <section className="border-y border-border bg-muted/50 py-12">
-        <dl className="mx-auto grid max-w-6xl grid-cols-1 gap-8 px-6 sm:grid-cols-3">
+        <div className="mx-auto grid max-w-6xl grid-cols-1 gap-8 px-6 sm:grid-cols-3">
           <Stat icon={BookOpen} value={publishedCourseCount} label="Courses" />
-          <Stat icon={Layers} value={categoryCount} label="Categories" />
+          <Stat
+            icon={Layers}
+            value={publishedCategoryCount}
+            label="Categories"
+          />
           <Stat
             icon={GraduationCap}
             value={publishedLessonCount}
             label="Lessons to work through"
           />
-        </dl>
+        </div>
       </section>
 
       {featuredCourses.length > 0 && (

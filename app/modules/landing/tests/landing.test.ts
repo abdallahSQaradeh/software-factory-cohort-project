@@ -4,7 +4,7 @@ import * as schema from "~/db/schema";
 import { CourseStatus } from "~/db/schema";
 import { markdown } from "~/lib/text";
 import { createLanding, FEATURED_COURSE_LIMIT } from "../index.server";
-import { getHeroActions } from "../index";
+import { getFooterLinks, getHeroActions } from "../index";
 
 let db: TestDb;
 let base: ReturnType<typeof seedBaseData>;
@@ -20,10 +20,21 @@ beforeEach(() => {
 
 let slugCounter = 0;
 
+function addCategory(name: string) {
+  return db
+    .insert(schema.categories)
+    .values({ name, slug: name.toLowerCase() })
+    .returning()
+    .get();
+}
+
 function addCourse(
   title: string,
   createdAt: string,
-  status = CourseStatus.Published
+  {
+    status = CourseStatus.Published,
+    categoryId = base.category.id,
+  }: { status?: CourseStatus; categoryId?: number } = {}
 ) {
   return db
     .insert(schema.courses)
@@ -33,7 +44,7 @@ function addCourse(
       description: `About ${title}`,
       salesCopy: markdown(`## ${title}`),
       instructorId: base.instructor.id,
-      categoryId: base.category.id,
+      categoryId,
       status,
       createdAt,
     })
@@ -64,19 +75,39 @@ function catalogue() {
   return createLanding(db).catalogue();
 }
 
+function titles(courses: { title: string }[]) {
+  return courses.map((course) => course.title);
+}
+
 describe("landing catalogue", () => {
-  it("features the newest published courses, newest first", () => {
+  it("spotlights the newest published course and features the next ones", () => {
     db.delete(schema.courses).run();
     addCourse("Oldest", "2026-01-01T00:00:00.000Z");
     addCourse("Newest", "2026-04-01T00:00:00.000Z");
     addCourse("Middle", "2026-02-01T00:00:00.000Z");
-    addCourse("Draft", "2026-05-01T00:00:00.000Z", CourseStatus.Draft);
-    addCourse("Archived", "2026-06-01T00:00:00.000Z", CourseStatus.Archived);
+    addCourse("Draft", "2026-05-01T00:00:00.000Z", {
+      status: CourseStatus.Draft,
+    });
+    addCourse("Archived", "2026-06-01T00:00:00.000Z", {
+      status: CourseStatus.Archived,
+    });
 
-    const titles = catalogue().featuredCourses.map((course) => course.title);
+    const { spotlightCourse, featuredCourses } = catalogue();
 
-    expect(titles).toEqual(["Newest", "Middle", "Oldest"]);
-    expect(FEATURED_COURSE_LIMIT).toBe(3);
+    expect(spotlightCourse?.title).toBe("Newest");
+    expect(titles(featuredCourses)).toEqual(["Middle", "Oldest"]);
+  });
+
+  it("features at most the limit, after the spotlight", () => {
+    db.delete(schema.courses).run();
+    for (let month = 1; month <= FEATURED_COURSE_LIMIT + 2; month++) {
+      addCourse(`Month ${month}`, `2026-0${month}-01T00:00:00.000Z`);
+    }
+
+    const { spotlightCourse, featuredCourses } = catalogue();
+
+    expect(spotlightCourse?.title).toBe("Month 5");
+    expect(titles(featuredCourses)).toEqual(["Month 4", "Month 3", "Month 2"]);
   });
 
   it("breaks a tie on creation time by the later course", () => {
@@ -84,17 +115,18 @@ describe("landing catalogue", () => {
     addCourse("First", "2026-01-01T00:00:00.000Z");
     addCourse("Second", "2026-01-01T00:00:00.000Z");
 
-    const titles = catalogue().featuredCourses.map((course) => course.title);
+    const { spotlightCourse, featuredCourses } = catalogue();
 
-    expect(titles).toEqual(["Second", "First"]);
+    expect(spotlightCourse?.title).toBe("Second");
+    expect(titles(featuredCourses)).toEqual(["First"]);
   });
 
   it("describes each featured course for its card", () => {
     db.delete(schema.courses).run();
     const course = addCourse("Only", "2026-01-01T00:00:00.000Z");
 
-    expect(catalogue().featuredCourses).toEqual([
-      {
+    expect(catalogue()).toMatchObject({
+      spotlightCourse: {
         id: course.id,
         title: "Only",
         slug: course.slug,
@@ -104,7 +136,8 @@ describe("landing catalogue", () => {
         categoryName: "Programming",
         lessonCount: 0,
       },
-    ]);
+      featuredCourses: [],
+    });
   });
 
   it("counts the lessons of each featured course across its modules", () => {
@@ -114,45 +147,47 @@ describe("landing catalogue", () => {
     addLessons(big.id, [2, 3]);
     addLessons(small.id, [1]);
 
-    const counts = catalogue().featuredCourses.map((c) => [
-      c.title,
-      c.lessonCount,
-    ]);
+    const { spotlightCourse, featuredCourses } = catalogue();
 
-    expect(counts).toEqual([
-      ["Big", 5],
-      ["Small", 1],
-    ]);
+    expect(spotlightCourse?.lessonCount).toBe(5);
+    expect(featuredCourses.map((c) => c.lessonCount)).toEqual([1]);
   });
 
-  it("counts published courses, all categories and published lessons", () => {
+  it("counts published courses, their categories and their lessons", () => {
     addCourse("Second", "2026-01-01T00:00:00.000Z");
-    const draft = addCourse(
-      "Draft",
-      "2026-01-01T00:00:00.000Z",
-      CourseStatus.Draft
-    );
-    db.insert(schema.categories)
-      .values({ name: "Design", slug: "design" })
-      .run();
+    const design = addCategory("Design");
+    addCourse("Design", "2026-01-01T00:00:00.000Z", { categoryId: design.id });
+    const writing = addCategory("Writing");
+    const draft = addCourse("Draft", "2026-01-01T00:00:00.000Z", {
+      status: CourseStatus.Draft,
+      categoryId: writing.id,
+    });
+    addCategory("Empty");
     addLessons(base.course.id, [4]);
     addLessons(draft.id, [7]);
 
-    const { publishedCourseCount, categoryCount, publishedLessonCount } =
-      catalogue();
+    const {
+      publishedCourseCount,
+      publishedCategoryCount,
+      publishedLessonCount,
+    } = catalogue();
 
-    expect(publishedCourseCount).toBe(2);
-    expect(categoryCount).toBe(2);
+    expect(publishedCourseCount).toBe(3);
+    expect(publishedCategoryCount).toBe(2);
     expect(publishedLessonCount).toBe(4);
   });
 
   it("is empty when nothing is published", () => {
     db.delete(schema.courses).run();
-    addCourse("Draft", "2026-01-01T00:00:00.000Z", CourseStatus.Draft);
+    addCourse("Draft", "2026-01-01T00:00:00.000Z", {
+      status: CourseStatus.Draft,
+    });
 
-    expect(catalogue()).toMatchObject({
+    expect(catalogue()).toEqual({
+      spotlightCourse: null,
       featuredCourses: [],
       publishedCourseCount: 0,
+      publishedCategoryCount: 0,
       publishedLessonCount: 0,
     });
   });
@@ -171,5 +206,22 @@ describe("getHeroActions", () => {
       primary: { label: "Continue learning", to: "/dashboard" },
       secondary: { label: "Browse courses", to: "/courses" },
     });
+  });
+});
+
+describe("getFooterLinks", () => {
+  it("offers a visitor the courses, log in and sign up", () => {
+    expect(getFooterLinks(false)).toEqual([
+      { label: "Courses", to: "/courses" },
+      { label: "Log In", to: "/login" },
+      { label: "Sign Up", to: "/signup" },
+    ]);
+  });
+
+  it("offers someone signed in the courses and their dashboard", () => {
+    expect(getFooterLinks(true)).toEqual([
+      { label: "Courses", to: "/courses" },
+      { label: "Dashboard", to: "/dashboard" },
+    ]);
   });
 });

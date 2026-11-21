@@ -10,7 +10,6 @@ export { FEATURED_COURSE_LIMIT } from "./lib/catalogue";
  */
 export function createLanding(database: Db) {
   return {
-    /** The featured courses and the catalogue figures, in five queries. */
     catalogue() {
       return getLandingCatalogue(database);
     },

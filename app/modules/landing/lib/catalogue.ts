@@ -1,4 +1,4 @@
-import { count, desc, eq, inArray } from "drizzle-orm";
+import { count, countDistinct, desc, eq, inArray } from "drizzle-orm";
 import type { BetterSQLite3Database } from "drizzle-orm/better-sqlite3";
 import * as schema from "~/db/schema";
 import { CourseStatus } from "~/db/schema";
@@ -17,11 +17,12 @@ export type FeaturedCourse = {
 };
 
 export type LandingCatalogue = {
-  /** The newest published courses, newest first. */
+  // The spotlight is kept out of the featured list so the page never shows
+  // the same course twice.
+  spotlightCourse: FeaturedCourse | null;
   featuredCourses: FeaturedCourse[];
   publishedCourseCount: number;
-  categoryCount: number;
-  /** Lessons across every published course. */
+  publishedCategoryCount: number;
   publishedLessonCount: number;
 };
 
@@ -67,7 +68,7 @@ function newestPublishedCourses(db: Db) {
       .where(isPublished)
       // The id breaks ties between courses created in the same instant.
       .orderBy(desc(schema.courses.createdAt), desc(schema.courses.id))
-      .limit(FEATURED_COURSE_LIMIT)
+      .limit(1 + FEATURED_COURSE_LIMIT)
       .all()
   );
 }
@@ -85,16 +86,22 @@ export function getLandingCatalogue(db: Db): LandingCatalogue {
     .innerJoin(schema.courses, eq(schema.modules.courseId, schema.courses.id))
     .where(isPublished);
 
+  const [spotlightCourse = null, ...featuredCourses] = newest.map((course) => ({
+    ...course,
+    lessonCount: lessonCounts.get(course.id) ?? 0,
+  }));
+
   return {
-    featuredCourses: newest.map((course) => ({
-      ...course,
-      lessonCount: lessonCounts.get(course.id) ?? 0,
-    })),
+    spotlightCourse,
+    featuredCourses,
     publishedCourseCount: countOf(
       db.select({ total: count() }).from(schema.courses).where(isPublished)
     ),
-    categoryCount: countOf(
-      db.select({ total: count() }).from(schema.categories)
+    publishedCategoryCount: countOf(
+      db
+        .select({ total: countDistinct(schema.courses.categoryId) })
+        .from(schema.courses)
+        .where(isPublished)
     ),
     publishedLessonCount: countOf(
       db
